@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace "com.example.ar_ai_smart_study"
-    compileSdk 34
+    compileSdk 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -33,6 +33,7 @@ android {
         release {
             signingConfig signingConfigs.debug
             minifyEnabled false
+            shrinkResources false
         }
     }
 }
