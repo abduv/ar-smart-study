@@ -85,14 +85,12 @@ class _ResultScreenState extends State<ResultScreen>
             icon: const Icon(Icons.view_in_ar),
             tooltip: 'AR режим',
             onPressed: () {
-              if (widget.result.imagePath != null) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AROverlayScreen(result: widget.result),
-                  ),
-                );
-              }
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AROverlayScreen(result: widget.result),
+                ),
+              );
             },
           ),
         ],
@@ -128,6 +126,16 @@ class _ResultScreenState extends State<ResultScreen>
                 height: 150,
                 width: double.infinity,
                 fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 150,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.image_not_supported,
+                      size: 48, color: AppTheme.primaryColor),
+                ),
               ),
             ),
           const SizedBox(height: 16),

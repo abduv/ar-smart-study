@@ -58,6 +58,21 @@ class _AROverlayScreenState extends State<AROverlayScreen>
     _controller.forward();
   }
 
+  Widget _buildPlaceholderBg() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1A1A2E), Color(0xFF16213E), Color(0xFF0F3460)],
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.view_in_ar, size: 80, color: Colors.white24),
+      ),
+    );
+  }
+
   void _nextStep() {
     if (_currentStep < _explanationSteps.length - 1) {
       _controller.reset();
@@ -86,14 +101,18 @@ class _AROverlayScreenState extends State<AROverlayScreen>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Background image (full screen)
-          if (widget.result.imagePath != null)
+          // Background image (full screen) or gradient placeholder
+          if (widget.result.imagePath != null &&
+              File(widget.result.imagePath!).existsSync())
             Positioned.fill(
               child: Image.file(
                 File(widget.result.imagePath!),
                 fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => _buildPlaceholderBg(),
               ),
-            ),
+            )
+          else
+            Positioned.fill(child: _buildPlaceholderBg()),
 
           // AR grid overlay effect
           Positioned.fill(
