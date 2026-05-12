@@ -12,9 +12,8 @@ class AIService extends ChangeNotifier {
   String? get lastExplanation => _lastExplanation;
   String? get error => _error;
 
-  /// Танылған мәтінге AI түсіндірме жасау
   Future<String> getExplanation(String recognizedText,
-      {String language = 'kazakh'}) async {
+      {String language = 'russian'}) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -34,7 +33,6 @@ class AIService extends ChangeNotifier {
     }
   }
 
-  /// Қосымша сұрақ қою
   Future<String> askFollowUp(
       String originalText, String explanation, String question) async {
     _isLoading = true;
@@ -43,22 +41,21 @@ class AIService extends ChangeNotifier {
 
     try {
       final prompt = '''
-Бұрынғы мәтін:
+Исходный текст:
 $originalText
 
-Бұрынғы түсіндірме:
+Предыдущее объяснение:
 $explanation
 
-Оқушының сұрағы:
+Вопрос ученика:
 $question
 
-Осы сұраққа қазақ тілінде, қарапайым тілмен, оқушыға түсінікті етіп жауап бер.
-Қажет болса мысал немесе формула қос.
+Ответь на русском языке, понятно и по делу. Если нужно — приведи пример или формулу.
 ''';
 
       String answer;
       if (AppConstants.aiApiKey == 'YOUR_API_KEY_HERE') {
-        answer = _generateSmartFollowUp(originalText, explanation, question);
+        answer = _generateFollowUp(originalText, explanation, question);
       } else {
         answer = await _callAI(prompt);
       }
@@ -75,37 +72,29 @@ $question
   }
 
   String _buildPrompt(String text, String language) {
-    final langInstruction = language == 'kazakh'
-        ? 'Қазақ тілінде жауап бер.'
-        : language == 'russian'
-            ? 'Отвечай на русском языке.'
-            : 'Answer in English.';
-
     return '''
-Сен — оқушыларға көмектесетін AI-мұғалімсің.
+Ты — AI-учитель, помогающий ученикам.
 
-Оқушы камерамен мына мәтінді сканерледі:
+Ученик отсканировал камерой этот текст:
 ---
 $text
 ---
 
-Міндеттерің:
-1. Мәтіннің тақырыбын анықта (математика, физика, химия, тарих, т.б.)
-2. Мәтінді қадам-қадаммен түсіндір
-3. Егер есеп/тапсырма болса — шешімін қадаммен көрсет
-4. Маңызды формулалар мен ережелерді бөлек жаз
-5. Қысқаша қорытынды жаса
+Твои задачи:
+1. Если это задача — реши её пошагово
+2. Если это вопрос — ответь на него
+3. Если это текст — объясни его простым языком
+4. Приведи формулы и правила если нужно
+5. Дай краткий вывод
 
-$langInstruction
-Қарапайым тілмен, оқушыға түсінікті етіп жаз.
-Markdown формат қолдан.
+Отвечай на русском языке, простым и понятным языком.
+Используй Markdown для форматирования.
 ''';
   }
 
   Future<String> _callAI(String prompt) async {
-    // Егер API кілті жоқ болса — смарт демо режим
     if (AppConstants.aiApiKey == 'YOUR_API_KEY_HERE') {
-      return _generateSmartExplanation(prompt);
+      return _generateExplanation(prompt);
     }
 
     final response = await http.post(
@@ -128,307 +117,288 @@ Markdown формат қолдан.
       final data = jsonDecode(response.body);
       return data['content'][0]['text'] as String;
     } else {
-      throw Exception('AI қатесі: ${response.statusCode} — ${response.body}');
+      throw Exception('Ошибка AI: ${response.statusCode} — ${response.body}');
     }
   }
 
   // ============================================================
-  // СМАРТ ДЕМО РЕЖИМ — мәтінді талдап, нақты түсіндірме жасайды
+  // ДЕМО РЕЖИМ — анализ текста и генерация ответа
   // ============================================================
 
-  String _detectSubject(String text) {
+  String _detectType(String text) {
     final lower = text.toLowerCase();
 
-    // Математика белгілері
     final mathPatterns = RegExp(
-        r'[\+\-\×\÷\=\≠\≤\≥\<\>]|'
+        r'[\+\-\×\÷\=]|'
         r'\d+\s*[\+\-\*\/\=]\s*\d+|'
         r'sin|cos|tan|log|sqrt|'
         r'x\s*[\+\-\*\/\=]|'
-        r'формула|теңдеу|теорема|'
-        r'equation|integral|derivative|'
-        r'квадрат|функция|график|'
-        r'уравнение|корень|дискриминант|'
-        r'\d+x[\²³]|\d+x\^');
+        r'формула|теңдеу|теорема|уравнение|'
+        r'квадрат|функция|корень|дискриминант|'
+        r'\d+x|\d+\s*x');
     if (mathPatterns.hasMatch(lower)) return 'math';
 
-    // Физика белгілері
     final physicsPatterns = RegExp(
         r'м/с|кг|ньютон|джоуль|ватт|'
-        r'km/h|m/s|kg|newton|joule|watt|'
-        r'күш|жылдамдық|үдеу|масса|энергия|'
+        r'km/h|m/s|kg|'
+        r'күш|жылдамдық|масса|энергия|'
         r'сила|скорость|ускорение|'
-        r'force|velocity|acceleration|energy|'
-        r'F\s*=\s*m\s*[\*·]?\s*a|'
-        r'E\s*=\s*m\s*c|'
-        r'v\s*=\s*s\s*/\s*t|'
+        r'F\s*=|v\s*=|E\s*=|'
         r'импульс|гравитация|электр');
     if (physicsPatterns.hasMatch(lower)) return 'physics';
 
-    // Химия белгілері
     final chemPatterns = RegExp(
         r'H₂O|CO₂|NaCl|O₂|H₂|'
-        r'H2O|CO2|NaCl|O2|H2SO4|'
-        r'молекула|атом|элемент|реакция|'
-        r'кислота|щелочь|оксид|соль|'
-        r'acid|base|molecule|reaction|'
-        r'валентность|моль|'
+        r'H2O|CO2|H2SO4|'
+        r'молекула|атом|реакция|'
+        r'кислота|оксид|'
         r'[A-Z][a-z]?\d|→|⟶');
     if (chemPatterns.hasMatch(text)) return 'chemistry';
 
-    // Биология белгілері
     final bioPatterns = RegExp(
         r'клетка|ДНК|РНК|ген|хромосом|'
-        r'жасуша|тұқымқуалау|'
-        r'cell|DNA|RNA|gene|protein|'
-        r'фотосинтез|митоз|мейоз|'
-        r'организм|эволюция|'
-        r'белок|фермент');
+        r'жасуша|cell|DNA|RNA|'
+        r'фотосинтез|митоз|организм|белок');
     if (bioPatterns.hasMatch(lower)) return 'biology';
 
-    // Тарих белгілері
     final historyPatterns = RegExp(
-        r'\b\d{3,4}\s*(ж|г|год|year)|'
-        r'ғасыр|век|century|'
-        r'хан|патша|президент|'
-        r'империя|мемлекет|'
-        r'соғыс|война|war|'
-        r'revolution|dynasty|'
-        r'б\.з\.д|н\.э|до нашей');
+        r'\b\d{3,4}\s*(ж|г|год)|'
+        r'ғасыр|век|хан|патша|'
+        r'империя|соғыс|война');
     if (historyPatterns.hasMatch(lower)) return 'history';
-
-    // География белгілері
-    final geoPatterns = RegExp(
-        r'континент|мұхит|тау|өзен|'
-        r'климат|атмосфера|литосфера|'
-        r'океан|материк|'
-        r'continent|ocean|mountain|river|'
-        r'координат|широта|долгота');
-    if (geoPatterns.hasMatch(lower)) return 'geography';
-
-    // Тіл/Әдебиет белгілері
-    final langPatterns = RegExp(
-        r'сөйлем|сөз тіркесі|етістік|зат есім|'
-        r'предложение|глагол|существительное|'
-        r'грамматика|синтаксис|'
-        r'sentence|grammar|verb|noun|'
-        r'жалғау|жұрнақ|prefix|suffix');
-    if (langPatterns.hasMatch(lower)) return 'language';
-
-    // Информатика белгілері
-    final csPatterns = RegExp(
-        r'алгоритм|программа|код|'
-        r'algorithm|function|variable|loop|'
-        r'массив|цикл|переменная|'
-        r'if\s*\(|for\s*\(|while\s*\(|'
-        r'print|return|class|def |int |string');
-    if (csPatterns.hasMatch(lower)) return 'cs';
 
     return 'general';
   }
 
-  List<String> _extractNumbers(String text) {
-    final regex = RegExp(r'-?\d+\.?\d*');
-    return regex.allMatches(text).map((m) => m.group(0)!).toList();
+  List<String> _findNumbers(String text) {
+    return RegExp(r'-?\d+\.?\d*')
+        .allMatches(text)
+        .map((m) => m.group(0)!)
+        .toList();
   }
 
-  String _extractEquation(String text) {
-    final eqRegex = RegExp(r'[^\n]*[=+\-*/][^\n]*=?[^\n]*');
-    final match = eqRegex.firstMatch(text);
-    return match?.group(0)?.trim() ?? '';
-  }
-
-  Future<String> _generateSmartExplanation(String prompt) async {
+  Future<String> _generateExplanation(String prompt) async {
     await Future.delayed(const Duration(milliseconds: 1500));
 
-    // Промпттан мәтінді алу
     final textMatch = RegExp(r'---\n([\s\S]*?)\n---').firstMatch(prompt);
-    final scannedText = textMatch?.group(1)?.trim() ?? prompt;
+    final text = textMatch?.group(1)?.trim() ?? prompt;
+    final type = _detectType(text);
+    final numbers = _findNumbers(text);
 
-    final subject = _detectSubject(scannedText);
-    final numbers = _extractNumbers(scannedText);
-    final equation = _extractEquation(scannedText);
-
-    switch (subject) {
+    switch (type) {
       case 'math':
-        return _buildMathExplanation(scannedText, numbers, equation);
+        return _mathResponse(text, numbers);
       case 'physics':
-        return _buildPhysicsExplanation(scannedText, numbers);
+        return _physicsResponse(text, numbers);
       case 'chemistry':
-        return _buildChemistryExplanation(scannedText);
+        return _chemistryResponse(text);
       case 'biology':
-        return _buildBiologyExplanation(scannedText);
+        return _biologyResponse(text);
       case 'history':
-        return _buildHistoryExplanation(scannedText);
-      case 'geography':
-        return _buildGeographyExplanation(scannedText);
-      case 'language':
-        return _buildLanguageExplanation(scannedText);
-      case 'cs':
-        return _buildCSExplanation(scannedText);
+        return _historyResponse(text);
       default:
-        return _buildGeneralExplanation(scannedText);
+        return _generalResponse(text);
     }
   }
 
-  String _buildMathExplanation(
-      String text, List<String> numbers, String equation) {
+  String _mathResponse(String text, List<String> numbers) {
     final buf = StringBuffer();
-    buf.writeln('## 📐 Тақырып: Математика');
+
+    buf.writeln('### Разбор');
     buf.writeln();
-    buf.writeln('### 📝 Сканерленген мәтін');
     buf.writeln('> $text');
     buf.writeln();
-    buf.writeln('### 📊 Талдау');
-    buf.writeln();
-
-    if (equation.isNotEmpty) {
-      buf.writeln('**Берілген өрнек/теңдеу:** `$equation`');
-      buf.writeln();
-    }
 
     if (numbers.isNotEmpty) {
-      buf.writeln('**Мәтіндегі сандар:** ${numbers.join(', ')}');
+      buf.writeln('**Данные:** ${numbers.join(', ')}');
       buf.writeln();
     }
 
-    buf.writeln('### 🔢 Шешу қадамдары');
-    buf.writeln();
-    buf.writeln('**1-қадам:** Берілген мәліметтерді анықтау');
-    buf.writeln(
-        '- Мәтіннен математикалық өрнектер мен сандарды бөліп алдық');
+    buf.writeln('### Решение');
     buf.writeln();
 
-    if (text.contains(RegExp(r'x\s*[\²2]|x\^2|квадрат|дискриминант'))) {
-      buf.writeln('**2-қадам:** Квадрат теңдеуді шешу');
-      buf.writeln('- Жалпы формула: `ax² + bx + c = 0`');
-      buf.writeln('- Дискриминант: `D = b² - 4ac`');
-      buf.writeln('- Түбірлер: `x = (-b ± √D) / 2a`');
+    if (text.contains(RegExp(r'x\s*[\²2]|x\^2|квадрат|дискриминант|ax'))) {
+      buf.writeln('Это квадратное уравнение вида `ax² + bx + c = 0`');
       buf.writeln();
-      buf.writeln('**3-қадам:** Мәндерді формулаға қою');
+      buf.writeln('**Шаг 1.** Находим дискриминант: `D = b² - 4ac`');
+      buf.writeln();
+      buf.writeln('**Шаг 2.** Если D > 0 — два корня:');
+      buf.writeln('- `x₁ = (-b + √D) / 2a`');
+      buf.writeln('- `x₂ = (-b - √D) / 2a`');
+      buf.writeln();
+      buf.writeln('Если D = 0 — один корень: `x = -b / 2a`');
+      buf.writeln();
+      buf.writeln('Если D < 0 — корней нет');
       if (numbers.length >= 3) {
-        buf.writeln(
-            '- a = ${numbers[0]}, b = ${numbers[1]}, c = ${numbers[2]}');
+        buf.writeln();
+        buf.writeln('**Шаг 3.** Подставляем: a=${numbers[0]}, b=${numbers[1]}, c=${numbers[2]}');
+        try {
+          final a = double.parse(numbers[0]);
+          final b = double.parse(numbers[1]);
+          final c = double.parse(numbers[2]);
+          final d = b * b - 4 * a * c;
+          buf.writeln();
+          buf.writeln('D = ${b.toInt()}² - 4·${a.toInt()}·${c.toInt()} = **${d.toInt()}**');
+          if (d > 0) {
+            final x1 = (-b + _sqrt(d)) / (2 * a);
+            final x2 = (-b - _sqrt(d)) / (2 * a);
+            buf.writeln();
+            buf.writeln('x₁ = **${x1.toStringAsFixed(2)}**');
+            buf.writeln('x₂ = **${x2.toStringAsFixed(2)}**');
+          } else if (d == 0) {
+            final x = -b / (2 * a);
+            buf.writeln();
+            buf.writeln('x = **${x.toStringAsFixed(2)}**');
+          } else {
+            buf.writeln();
+            buf.writeln('D < 0, корней нет.');
+          }
+        } catch (_) {}
       }
-    } else if (text.contains(RegExp(r'[+\-]\s*\d'))) {
-      buf.writeln('**2-қадам:** Арифметикалық амалдарды орындау');
-      buf.writeln('- Амалдар ретін сақтаңыз: жақша → дәреже → көбейту/бөлу → қосу/алу');
-      buf.writeln();
-      buf.writeln('**3-қадам:** Нәтижені тексеру');
-      buf.writeln('- Кері амалмен тексеріңіз');
+    } else if (text.contains(RegExp(r'\d+\s*[\+\-\*\/]\s*\d+'))) {
+      final exprMatch = RegExp(r'(\d+\.?\d*)\s*([\+\-\*\/])\s*(\d+\.?\d*)').firstMatch(text);
+      if (exprMatch != null) {
+        final a = double.parse(exprMatch.group(1)!);
+        final op = exprMatch.group(2)!;
+        final b = double.parse(exprMatch.group(3)!);
+        double? result;
+        String opName = '';
+        switch (op) {
+          case '+':
+            result = a + b;
+            opName = 'Сложение';
+            break;
+          case '-':
+            result = a - b;
+            opName = 'Вычитание';
+            break;
+          case '*':
+            result = a * b;
+            opName = 'Умножение';
+            break;
+          case '/':
+            result = b != 0 ? a / b : null;
+            opName = 'Деление';
+            break;
+        }
+        buf.writeln('**$opName:**');
+        buf.writeln();
+        buf.writeln('${a.toStringAsFixed(a == a.toInt() ? 0 : 2)} $op ${b.toStringAsFixed(b == b.toInt() ? 0 : 2)} = **${result?.toStringAsFixed(result == result?.toInt() ? 0 : 2) ?? "деление на 0"}**');
+      } else {
+        buf.writeln('**Шаг 1.** Определяем порядок действий: скобки → степень → умножение/деление → сложение/вычитание');
+        buf.writeln();
+        buf.writeln('**Шаг 2.** Выполняем вычисления по порядку');
+        buf.writeln();
+        buf.writeln('**Шаг 3.** Проверяем результат обратным действием');
+      }
     } else {
-      buf.writeln('**2-қадам:** Формуланы қолдану');
-      buf.writeln('- Берілген мәндерді формулаға қойыңыз');
+      buf.writeln('**Шаг 1.** Записываем данные');
       buf.writeln();
-      buf.writeln('**3-қадам:** Есептеу');
-      buf.writeln('- Қадаммен есептеп, нәтижені алыңыз');
+      buf.writeln('**Шаг 2.** Выбираем нужную формулу');
+      buf.writeln();
+      buf.writeln('**Шаг 3.** Подставляем значения и вычисляем');
     }
 
     buf.writeln();
-    buf.writeln('### 📐 Маңызды формулалар');
-    buf.writeln('| Формула | Сипаттама |');
-    buf.writeln('|---------|-----------|');
-    buf.writeln('| `(a+b)² = a² + 2ab + b²` | Қысқаша көбейту |');
-    buf.writeln('| `S = a × b` | Тіктөртбұрыш ауданы |');
-    buf.writeln('| `P = 2(a + b)` | Периметр |');
-    buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln(
-        'Бұл есепте математикалық амалдарды дұрыс ретпен орындау маңызды. '
-        'Әрқашан берілгенді жазып, формуланы таңдап, қадаммен шешіңіз.');
+    buf.writeln('---');
+    buf.writeln('*Есть вопросы? Спрашивайте во вкладке "Сұрақ"*');
 
     return buf.toString();
   }
 
-  String _buildPhysicsExplanation(String text, List<String> numbers) {
+  double _sqrt(double x) {
+    if (x < 0) return 0;
+    double guess = x / 2;
+    for (int i = 0; i < 20; i++) {
+      guess = (guess + x / guess) / 2;
+    }
+    return guess;
+  }
+
+  String _physicsResponse(String text, List<String> numbers) {
     final buf = StringBuffer();
-    buf.writeln('## ⚡ Тақырып: Физика');
+
+    buf.writeln('### Разбор');
     buf.writeln();
-    buf.writeln('### 📝 Сканерленген мәтін');
     buf.writeln('> $text');
-    buf.writeln();
-    buf.writeln('### 🔬 Талдау');
     buf.writeln();
 
     if (numbers.isNotEmpty) {
-      buf.writeln('**Берілген шамалар:** ${numbers.join(', ')}');
+      buf.writeln('**Данные:** ${numbers.join(', ')}');
       buf.writeln();
     }
 
-    if (text.contains(RegExp(r'күш|сила|force|F\s*=|ньютон|newton'))) {
-      buf.writeln('### 📏 Ньютон заңдары');
+    buf.writeln('### Решение');
+    buf.writeln();
+
+    if (text.contains(RegExp(r'күш|сила|force|F\s*=|ньютон'))) {
+      buf.writeln('Применяем второй закон Ньютона: **F = m · a**');
       buf.writeln();
-      buf.writeln('**1-заң:** Инерция заңы — дене сыртқы күш әсерінсіз қозғалыс күйін сақтайды');
-      buf.writeln();
-      buf.writeln('**2-заң:** `F = m × a`');
-      buf.writeln('- F — күш (Ньютон, Н)');
+      buf.writeln('- F — сила (Н)');
       buf.writeln('- m — масса (кг)');
-      buf.writeln('- a — үдеу (м/с²)');
-      buf.writeln();
-      buf.writeln('**3-заң:** Әрекет = Қарсы әрекет');
+      buf.writeln('- a — ускорение (м/с²)');
+      if (numbers.length >= 2) {
+        final m = double.tryParse(numbers[0]);
+        final a = double.tryParse(numbers[1]);
+        if (m != null && a != null) {
+          buf.writeln();
+          buf.writeln('F = $m · $a = **${(m * a).toStringAsFixed(2)} Н**');
+        }
+      }
     } else if (text.contains(RegExp(r'жылдамдық|скорость|velocity|v\s*='))) {
-      buf.writeln('### 🏃 Қозғалыс');
+      buf.writeln('Формула скорости: **v = s / t**');
       buf.writeln();
-      buf.writeln('**Жылдамдық формуласы:** `v = s / t`');
-      buf.writeln('- v — жылдамдық (м/с)');
-      buf.writeln('- s — жол (м)');
-      buf.writeln('- t — уақыт (с)');
-      buf.writeln();
-      buf.writeln('**Бірқалыпты үдемелі қозғалыс:**');
-      buf.writeln('- `v = v₀ + at`');
-      buf.writeln('- `s = v₀t + at²/2`');
+      buf.writeln('- v — скорость (м/с)');
+      buf.writeln('- s — путь (м)');
+      buf.writeln('- t — время (с)');
+      if (numbers.length >= 2) {
+        final s = double.tryParse(numbers[0]);
+        final t = double.tryParse(numbers[1]);
+        if (s != null && t != null && t != 0) {
+          buf.writeln();
+          buf.writeln('v = $s / $t = **${(s / t).toStringAsFixed(2)} м/с**');
+        }
+      }
     } else if (text.contains(RegExp(r'энергия|energy|E\s*='))) {
-      buf.writeln('### ⚡ Энергия');
+      buf.writeln('**Кинетическая энергия:** Eк = mv²/2');
       buf.writeln();
-      buf.writeln('**Кинетикалық энергия:** `Eк = mv²/2`');
-      buf.writeln('**Потенциалдық энергия:** `Eп = mgh`');
-      buf.writeln('**Энергияның сақталу заңы:** `Eк₁ + Eп₁ = Eк₂ + Eп₂`');
+      buf.writeln('**Потенциальная энергия:** Eп = mgh');
+      buf.writeln();
+      buf.writeln('**Закон сохранения:** Eк₁ + Eп₁ = Eк₂ + Eп₂');
     } else {
-      buf.writeln('### 📏 Негізгі формулалар');
+      buf.writeln('**Шаг 1.** Записываем данные и переводим в СИ');
       buf.writeln();
-      buf.writeln('| Шама | Формула | Бірлік |');
-      buf.writeln('|------|---------|--------|');
-      buf.writeln('| Жылдамдық | v = s/t | м/с |');
-      buf.writeln('| Күш | F = ma | Н |');
-      buf.writeln('| Энергия | E = mc² | Дж |');
-      buf.writeln('| Жұмыс | A = Fs | Дж |');
+      buf.writeln('**Шаг 2.** Выбираем формулу');
+      buf.writeln();
+      buf.writeln('**Шаг 3.** Подставляем и считаем');
+      buf.writeln();
+      buf.writeln('**Шаг 4.** Проверяем единицы измерения');
     }
 
     buf.writeln();
-    buf.writeln('### 🔢 Шешу қадамдары');
-    buf.writeln('1. Берілген шамаларды жазыңыз');
-    buf.writeln('2. Тиісті формуланы таңдаңыз');
-    buf.writeln('3. Мәндерді қойып есептеңіз');
-    buf.writeln('4. Өлшем бірлігін тексеріңіз');
-    buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln(
-        'Физикада есеп шығарған кезде бірлік жүйесін сақтау өте маңызды. '
-        'СИ жүйесін қолданыңыз.');
+    buf.writeln('---');
+    buf.writeln('*Есть вопросы? Спрашивайте во вкладке "Сұрақ"*');
 
     return buf.toString();
   }
 
-  String _buildChemistryExplanation(String text) {
+  String _chemistryResponse(String text) {
     final buf = StringBuffer();
-    buf.writeln('## 🧪 Тақырып: Химия');
+
+    buf.writeln('### Разбор');
     buf.writeln();
-    buf.writeln('### 📝 Сканерленген мәтін');
     buf.writeln('> $text');
     buf.writeln();
-    buf.writeln('### 🔬 Талдау');
-    buf.writeln();
 
-    // Жиі кездесетін химиялық формулалар
     final formulas = <String, String>{
-      'H2O': 'Су — 2 сутек + 1 оттек атомы',
-      'CO2': 'Көмірқышқыл газы — 1 көміртек + 2 оттек',
-      'NaCl': 'Ас тұзы — натрий + хлор',
-      'H2SO4': 'Күкірт қышқылы',
-      'NaOH': 'Натрий гидроксиді (сілті)',
-      'HCl': 'Тұз қышқылы',
-      'CaCO3': 'Кальций карбонаты (бор)',
-      'Fe2O3': 'Темір оксиді (тат)',
+      'H2O': 'Вода (2 водорода + 1 кислород)',
+      'CO2': 'Углекислый газ (1 углерод + 2 кислорода)',
+      'NaCl': 'Поваренная соль (натрий + хлор)',
+      'H2SO4': 'Серная кислота',
+      'NaOH': 'Гидроксид натрия (щёлочь)',
+      'HCl': 'Соляная кислота',
+      'CaCO3': 'Карбонат кальция (мел)',
+      'Fe2O3': 'Оксид железа (ржавчина)',
     };
 
     final found = <String>[];
@@ -439,397 +409,235 @@ Markdown формат қолдан.
     });
 
     if (found.isNotEmpty) {
-      buf.writeln('**Табылған заттар:**');
+      buf.writeln('**Найденные вещества:**');
       for (final f in found) {
         buf.writeln(f);
       }
       buf.writeln();
     }
 
+    buf.writeln('### Объяснение');
+    buf.writeln();
+
     if (text.contains(RegExp(r'→|⟶|реакция|reaction'))) {
-      buf.writeln('### ⚗️ Химиялық реакция');
+      buf.writeln('Это химическая реакция.');
       buf.writeln();
-      buf.writeln('**Реакция типтері:**');
-      buf.writeln('1. **Қосылу:** A + B → AB');
-      buf.writeln('2. **Ыдырау:** AB → A + B');
-      buf.writeln('3. **Орын басу:** A + BC → AC + B');
-      buf.writeln('4. **Алмасу:** AB + CD → AD + CB');
+      buf.writeln('**Типы реакций:**');
+      buf.writeln('1. **Соединение:** A + B → AB');
+      buf.writeln('2. **Разложение:** AB → A + B');
+      buf.writeln('3. **Замещение:** A + BC → AC + B');
+      buf.writeln('4. **Обмен:** AB + CD → AD + CB');
       buf.writeln();
-      buf.writeln('**Маңызды:** Реакцияны теңестіру керек — '
-          'екі жақта атом саны тең болуы тиіс!');
+      buf.writeln('Не забудьте уравнять — атомов слева и справа должно быть поровну.');
     } else {
-      buf.writeln('### 🔬 Негізгі ұғымдар');
-      buf.writeln();
-      buf.writeln('- **Атом** — заттың ең кіші бөлшегі');
-      buf.writeln('- **Молекула** — атомдар тобы');
-      buf.writeln('- **Валенттілік** — атомның байланысу қабілеті');
-      buf.writeln('- **Моль** — 6.022 × 10²³ бөлшек');
+      buf.writeln('- **Атом** — мельчайшая частица вещества');
+      buf.writeln('- **Молекула** — группа связанных атомов');
+      buf.writeln('- **Валентность** — способность атома образовывать связи');
     }
 
     buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln(
-        'Химиялық формулаларды дұрыс жазу және реакцияларды теңестіру — '
-        'химияның негізі.');
+    buf.writeln('---');
+    buf.writeln('*Есть вопросы? Спрашивайте во вкладке "Сұрақ"*');
 
     return buf.toString();
   }
 
-  String _buildBiologyExplanation(String text) {
+  String _biologyResponse(String text) {
     final buf = StringBuffer();
-    buf.writeln('## 🧬 Тақырып: Биология');
+
+    buf.writeln('### Разбор');
     buf.writeln();
-    buf.writeln('### 📝 Сканерленген мәтін');
     buf.writeln('> $text');
     buf.writeln();
-    buf.writeln('### 🔬 Талдау');
+    buf.writeln('### Объяснение');
     buf.writeln();
 
     if (text.contains(RegExp(r'жасуша|клетка|cell'))) {
-      buf.writeln('### 🔬 Жасуша құрылысы');
+      buf.writeln('**Строение клетки:**');
+      buf.writeln('- **Ядро** — хранит ДНК (генетическую информацию)');
+      buf.writeln('- **Цитоплазма** — внутренняя среда клетки');
+      buf.writeln('- **Мембрана** — защита и регуляция обмена веществ');
+      buf.writeln('- **Митохондрии** — «электростанции» клетки (выработка энергии)');
+      buf.writeln('- **Рибосомы** — синтез белков');
+    } else if (text.contains(RegExp(r'ДНК|DNA|ген|gene'))) {
+      buf.writeln('**ДНК** — дезоксирибонуклеиновая кислота');
       buf.writeln();
-      buf.writeln('**Негізгі бөліктері:**');
-      buf.writeln('- **Ядро** — генетикалық ақпарат (ДНК) сақтайды');
-      buf.writeln('- **Цитоплазма** — жасуша ішкі ортасы');
-      buf.writeln('- **Мембрана** — жасушаны қоршайды, заттарды реттейді');
-      buf.writeln('- **Митохондрия** — энергия өндіреді (жасуша "электростанциясы")');
-      buf.writeln('- **Рибосома** — белок синтездейді');
-    } else if (text.contains(RegExp(r'ДНК|DNA|ген|gene|тұқымқуалау'))) {
-      buf.writeln('### 🧬 Генетика');
+      buf.writeln('- Хранит наследственную информацию');
+      buf.writeln('- Двойная спираль');
+      buf.writeln('- Пары оснований: А-Т, Г-Ц');
       buf.writeln();
-      buf.writeln('**ДНК** — дезоксирибонуклеин қышқылы');
-      buf.writeln('- Тұқымқуалау ақпаратын сақтайды');
-      buf.writeln('- Қос спираль құрылымды');
-      buf.writeln('- Нуклеотидтер: A-T, G-C жұптары');
-      buf.writeln();
-      buf.writeln('**Ген** — ДНК-ның белок кодтайтын бөлігі');
+      buf.writeln('**Ген** — участок ДНК, кодирующий белок');
     } else {
-      buf.writeln('**Мәтіндегі биологиялық ұғымдар талданды.**');
+      buf.writeln('Биологические понятия из текста:');
       buf.writeln();
-      buf.writeln('### 📚 Негізгі ұғымдар');
-      buf.writeln('- Тірі организмдер жасушалардан тұрады');
-      buf.writeln('- Тіршіліктің негізгі белгілері: зат алмасу, көбею, өсу, тітіркенгіштік');
+      buf.writeln('- Живые организмы состоят из клеток');
+      buf.writeln('- Основные свойства жизни: обмен веществ, размножение, рост, раздражимость');
     }
 
     buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln('Биология — тірі организмдер туралы ғылым. '
-        'Жасуша деңгейінен бастап, экожүйеге дейін зерттейді.');
+    buf.writeln('---');
+    buf.writeln('*Есть вопросы? Спрашивайте во вкладке "Сұрақ"*');
 
     return buf.toString();
   }
 
-  String _buildHistoryExplanation(String text) {
+  String _historyResponse(String text) {
     final buf = StringBuffer();
-    buf.writeln('## 📜 Тақырып: Тарих');
+
+    buf.writeln('### Разбор');
     buf.writeln();
-    buf.writeln('### 📝 Сканерленген мәтін');
     buf.writeln('> $text');
     buf.writeln();
-    buf.writeln('### 📊 Талдау');
-    buf.writeln();
 
-    // Жылдарды табу
-    final yearRegex = RegExp(r'\b(\d{3,4})\s*(ж|г|год|year)?');
+    final yearRegex = RegExp(r'\b(\d{3,4})\s*(ж|г|год)?');
     final years = yearRegex.allMatches(text).map((m) => m.group(1)!).toList();
 
     if (years.isNotEmpty) {
-      buf.writeln('**Мәтіндегі жылдар:** ${years.join(', ')}');
+      buf.writeln('**Даты:** ${years.join(', ')}');
       buf.writeln();
     }
 
-    buf.writeln('### 📖 Тарихи контекст');
+    buf.writeln('### Объяснение');
     buf.writeln();
-    buf.writeln('Бұл мәтінде тарихи оқиғалар немесе тұлғалар туралы айтылады.');
-    buf.writeln();
-    buf.writeln('**Талдау кезеңдері:**');
-    buf.writeln('1. **Уақыт кезеңін** анықтау');
-    buf.writeln('2. **Негізгі тұлғаларды** табу');
-    buf.writeln('3. **Себеп-салдар** байланысын түсіну');
-    buf.writeln('4. **Маңыздылығын** бағалау');
-    buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln('Тарихи оқиғаларды уақыт тізбегімен есте сақтау маңызды. '
-        'Себеп-салдар байланысына назар аударыңыз.');
+    buf.writeln('**Как анализировать:**');
+    buf.writeln('1. Определить период времени');
+    buf.writeln('2. Найти ключевых участников');
+    buf.writeln('3. Понять причинно-следственную связь');
+    buf.writeln('4. Оценить значение события');
 
-    return buf.toString();
-  }
-
-  String _buildGeographyExplanation(String text) {
-    final buf = StringBuffer();
-    buf.writeln('## 🌍 Тақырып: География');
-    buf.writeln();
-    buf.writeln('### 📝 Сканерленген мәтін');
-    buf.writeln('> $text');
-    buf.writeln();
-    buf.writeln('### 🗺️ Талдау');
-    buf.writeln();
-    buf.writeln('Бұл мәтінде географиялық ұғымдар немесе нысандар туралы айтылады.');
-    buf.writeln();
-    buf.writeln('**Негізгі географиялық ұғымдар:**');
-    buf.writeln('- Материктер мен мұхиттар');
-    buf.writeln('- Климат белдеулері');
-    buf.writeln('- Табиғат зоналары');
-    buf.writeln('- Халық пен шаруашылық');
-    buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln('Географияда карта оқу дағдысы мен табиғат процестерін түсіну маңызды.');
-
-    return buf.toString();
-  }
-
-  String _buildLanguageExplanation(String text) {
-    final buf = StringBuffer();
-    buf.writeln('## 📝 Тақырып: Тіл білімі');
-    buf.writeln();
-    buf.writeln('### 📝 Сканерленген мәтін');
-    buf.writeln('> $text');
-    buf.writeln();
-    buf.writeln('### 📖 Грамматикалық талдау');
-    buf.writeln();
-
-    final wordCount = text.split(RegExp(r'\s+')).length;
-    final sentenceCount = text.split(RegExp(r'[.!?]+')).length - 1;
-
-    buf.writeln('- **Сөз саны:** ~$wordCount');
-    if (sentenceCount > 0) {
-      buf.writeln('- **Сөйлем саны:** ~$sentenceCount');
-    }
-    buf.writeln();
-    buf.writeln('### 📚 Негізгі ережелер');
-    buf.writeln();
-    buf.writeln('**Сөз таптары:**');
-    buf.writeln('- **Зат есім** — кім? не? (кітап, бала)');
-    buf.writeln('- **Сын есім** — қандай? (үлкен, жақсы)');
-    buf.writeln('- **Етістік** — не істеді? (оқыды, жазды)');
-    buf.writeln('- **Үстеу** — қалай? қашан? (тез, бүгін)');
-    buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln('Грамматика ережелерін есте сақтау үшін көп мысал жасаңыз.');
-
-    return buf.toString();
-  }
-
-  String _buildCSExplanation(String text) {
-    final buf = StringBuffer();
-    buf.writeln('## 💻 Тақырып: Информатика');
-    buf.writeln();
-    buf.writeln('### 📝 Сканерленген мәтін');
-    buf.writeln('```');
-    buf.writeln(text);
-    buf.writeln('```');
-    buf.writeln();
-    buf.writeln('### 🔍 Талдау');
-    buf.writeln();
-
-    if (text.contains(RegExp(r'if|else|elif|switch'))) {
-      buf.writeln('**Шартты оператор табылды.**');
+    final sentences = text.split(RegExp(r'[.!?\n]+')).where((s) => s.trim().length > 15).toList();
+    if (sentences.isNotEmpty) {
       buf.writeln();
-      buf.writeln('`if-else` — шарт тексеру операторы:');
-      buf.writeln('- Шарт ақиқат (true) болса → бірінші блок орындалады');
-      buf.writeln('- Шарт жалған (false) болса → else блогы орындалады');
-    }
-    if (text.contains(RegExp(r'for|while|loop'))) {
-      buf.writeln('**Цикл табылды.**');
-      buf.writeln();
-      buf.writeln('Цикл — кодты қайталап орындау:');
-      buf.writeln('- `for` — белгілі рет қайталау');
-      buf.writeln('- `while` — шарт орындалғанша қайталау');
+      buf.writeln('**Ключевые моменты:**');
+      for (var i = 0; i < sentences.length && i < 4; i++) {
+        buf.writeln('- ${sentences[i].trim()}');
+      }
     }
 
     buf.writeln();
-    buf.writeln('### 📚 Негізгі ұғымдар');
-    buf.writeln('- **Айнымалы (variable)** — деректерді сақтау');
-    buf.writeln('- **Функция (function)** — қайта қолданылатын код блогы');
-    buf.writeln('- **Массив (array)** — деректер тізімі');
-    buf.writeln('- **Цикл (loop)** — қайталау');
-    buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln('Программалау — алгоритмдік ойлауды дамытатын пән. '
-        'Код жазу арқылы үйреніңіз!');
+    buf.writeln('---');
+    buf.writeln('*Есть вопросы? Спрашивайте во вкладке "Сұрақ"*');
 
     return buf.toString();
   }
 
-  String _buildGeneralExplanation(String text) {
+  String _generalResponse(String text) {
     final buf = StringBuffer();
-    final wordCount = text.split(RegExp(r'\s+')).length;
 
-    buf.writeln('## 📚 Сканерленген мәтін талдауы');
+    buf.writeln('### Разбор');
     buf.writeln();
-    buf.writeln('### 📝 Мәтін');
     buf.writeln('> $text');
     buf.writeln();
-    buf.writeln('### 📊 Жалпы ақпарат');
-    buf.writeln('- **Сөз саны:** ~$wordCount');
-    buf.writeln();
-    buf.writeln('### 📖 Түсіндірме');
-    buf.writeln();
-    buf.writeln('Бұл мәтінде берілген ақпаратты қарастырайық:');
+    buf.writeln('### Объяснение');
     buf.writeln();
 
-    // Мәтіннен негізгі сөйлемдерді алу
     final sentences = text.split(RegExp(r'[.!?\n]+')).where((s) => s.trim().length > 10).toList();
     if (sentences.isNotEmpty) {
-      buf.writeln('**Негізгі ойлар:**');
+      buf.writeln('**Основные мысли:**');
       for (var i = 0; i < sentences.length && i < 5; i++) {
         buf.writeln('${i + 1}. ${sentences[i].trim()}');
       }
       buf.writeln();
     }
 
-    buf.writeln('### 💡 Кеңестер');
-    buf.writeln('- Мәтіннің негізгі ойын ажыратыңыз');
-    buf.writeln('- Маңызды терминдерді белгілеңіз');
-    buf.writeln('- Сұрақтар қойып, тереңірек түсініңіз');
-    buf.writeln();
-    buf.writeln('### ✅ Қорытынды');
-    buf.writeln('Мәтінді мұқият оқып, негізгі ақпаратты бөліп алу маңызды. '
-        'Қосымша сұрақтар қою үшін "Сұрақ" бөліміне өтіңіз.');
-
-    return buf.toString();
-  }
-
-  /// Смарт follow-up жауап (демо режим)
-  String _generateSmartFollowUp(
-      String originalText, String explanation, String question) {
-    final subject = _detectSubject(originalText);
-    final lowerQ = question.toLowerCase();
-    final buf = StringBuffer();
-
-    // Сұрақ түрін анықтау
-    if (lowerQ.contains(RegExp(r'мысал|пример|example'))) {
-      buf.writeln('### 📌 Мысал');
-      buf.writeln();
-      _addExampleForSubject(buf, subject, originalText);
-    } else if (lowerQ.contains(RegExp(r'формула|formula'))) {
-      buf.writeln('### 📐 Формулалар');
-      buf.writeln();
-      _addFormulasForSubject(buf, subject);
-    } else if (lowerQ.contains(RegExp(r'неге|почему|why|себеб'))) {
-      buf.writeln('### 🤔 Түсіндірме');
-      buf.writeln();
-      buf.writeln('Жақсы сұрақ! Мұның себебі:');
-      buf.writeln();
-      buf.writeln('Сканерленген мәтіндегі ақпарат бойынша:');
-      buf.writeln('> ${originalText.length > 100 ? originalText.substring(0, 100) : originalText}...');
-      buf.writeln();
-      buf.writeln('Бұл тақырыпты тереңірек түсіну үшін негізгі '
-          'принциптерге назар аударыңыз.');
-    } else if (lowerQ.contains(RegExp(r'қалай|как|how'))) {
-      buf.writeln('### 📝 Қадаммен түсіндірме');
-      buf.writeln();
-      buf.writeln('Бұл процесс/әдіс былай жұмыс істейді:');
-      buf.writeln();
-      buf.writeln('1. **Бірінші қадам** — берілгенді анықтаңыз');
-      buf.writeln('2. **Екінші қадам** — тиісті әдісті/формуланы таңдаңыз');
-      buf.writeln('3. **Үшінші қадам** — қадаммен орындаңыз');
-      buf.writeln('4. **Тексеру** — нәтижені растаңыз');
-    } else {
-      // Жалпы жауап
-      buf.writeln('Сіздің сұрағыңыз: **$question**');
-      buf.writeln();
-      buf.writeln('Сканерленген мәтін бойынша жауап:');
-      buf.writeln();
-
-      switch (subject) {
-        case 'math':
-          buf.writeln('Математикалық тұрғыдан бұл тақырып маңызды. '
-              'Формулаларды есте сақтау және мысалдар шығару арқылы тереңірек түсінуге болады.');
-          break;
-        case 'physics':
-          buf.writeln('Физика заңдарын түсіну үшін тәжірибе жасап көріңіз. '
-              'Күнделікті өмірдегі мысалдар физика заңдарын жақсы түсіндіреді.');
-          break;
-        case 'chemistry':
-          buf.writeln('Химиялық процестерді түсіну үшін элементтердің қасиеттеріне '
-              'назар аударыңыз. Периодтық кесте — сіздің жол көрсетушіңіз.');
-          break;
-        default:
-          buf.writeln('Бұл тақырып бойынша қосымша ақпарат:');
-          buf.writeln();
-          buf.writeln('- Мәтіннің негізгі ойын ажыратыңыз');
-          buf.writeln('- Белгісіз терминдерді іздеңіз');
-          buf.writeln('- Практикалық мысалдар қараңыз');
-      }
-    }
+    buf.writeln('**Советы:**');
+    buf.writeln('- Выделите ключевую мысль текста');
+    buf.writeln('- Отметьте важные термины');
+    buf.writeln('- Задайте уточняющие вопросы');
 
     buf.writeln();
     buf.writeln('---');
-    buf.writeln('*Тағы сұрақ бар ма? Қоя беріңіз! 🎓*');
+    buf.writeln('*Есть вопросы? Спрашивайте во вкладке "Сұрақ"*');
 
     return buf.toString();
   }
 
-  void _addExampleForSubject(StringBuffer buf, String subject, String text) {
-    switch (subject) {
-      case 'math':
-        buf.writeln('**Есеп мысалы:**');
-        buf.writeln();
-        buf.writeln('Берілгені: 2x + 5 = 15');
-        buf.writeln();
-        buf.writeln('Шешуі:');
-        buf.writeln('1. 2x = 15 - 5');
-        buf.writeln('2. 2x = 10');
-        buf.writeln('3. x = 10 / 2');
-        buf.writeln('4. **x = 5** ✅');
-        break;
-      case 'physics':
-        buf.writeln('**Есеп мысалы:**');
-        buf.writeln();
-        buf.writeln('Автокөлік 2 сағатта 120 км жол жүрді. Жылдамдығы қанша?');
-        buf.writeln();
-        buf.writeln('Шешуі: v = s/t = 120/2 = **60 км/сағ** ✅');
-        break;
-      case 'chemistry':
-        buf.writeln('**Реакция мысалы:**');
-        buf.writeln();
-        buf.writeln('`2H₂ + O₂ → 2H₂O`');
-        buf.writeln();
-        buf.writeln('2 молекула сутек + 1 молекула оттек = 2 молекула су');
-        break;
-      default:
-        buf.writeln('Мәтіндегі ақпарат негізінде мысал:');
-        buf.writeln();
-        final sentences = text.split(RegExp(r'[.!?\n]+')).where((s) => s.trim().isNotEmpty).toList();
-        if (sentences.isNotEmpty) {
-          buf.writeln('> ${sentences.first.trim()}');
-          buf.writeln();
-          buf.writeln('Бұл мәтіннен басты ойды ажыратып, өз сөзіңізбен түсіндіріңіз.');
-        }
-    }
-  }
+  // ============================================================
+  // FOLLOW-UP (допвопросы) в демо режиме
+  // ============================================================
 
-  void _addFormulasForSubject(StringBuffer buf, String subject) {
-    switch (subject) {
-      case 'math':
-        buf.writeln('| Формула | Атауы |');
-        buf.writeln('|---------|-------|');
-        buf.writeln('| `a² + b² = c²` | Пифагор теоремасы |');
-        buf.writeln('| `D = b² - 4ac` | Дискриминант |');
-        buf.writeln('| `x = (-b ± √D) / 2a` | Квадрат теңдеу |');
-        buf.writeln('| `S = πr²` | Шеңбер ауданы |');
-        break;
-      case 'physics':
-        buf.writeln('| Формула | Шама |');
-        buf.writeln('|---------|------|');
-        buf.writeln('| `F = ma` | Күш |');
-        buf.writeln('| `v = s/t` | Жылдамдық |');
-        buf.writeln('| `E = mc²` | Энергия |');
-        buf.writeln('| `p = mv` | Импульс |');
-        buf.writeln('| `A = Fs` | Жұмыс |');
-        break;
-      case 'chemistry':
-        buf.writeln('| Формула | Зат |');
-        buf.writeln('|---------|-----|');
-        buf.writeln('| H₂O | Су |');
-        buf.writeln('| CO₂ | Көмірқышқыл газ |');
-        buf.writeln('| NaCl | Тұз |');
-        buf.writeln('| n = m/M | Моль саны |');
-        break;
-      default:
-        buf.writeln('Бұл тақырып бойынша нақты формулалар мәтінде табылмады. '
-            'Мәтінді қайта сканерлеп көріңіз.');
+  String _generateFollowUp(
+      String originalText, String explanation, String question) {
+    final type = _detectType(originalText);
+    final lowerQ = question.toLowerCase();
+    final buf = StringBuffer();
+
+    if (lowerQ.contains(RegExp(r'пример|мысал|example'))) {
+      switch (type) {
+        case 'math':
+          buf.writeln('**Пример:**');
+          buf.writeln();
+          buf.writeln('Дано: 2x + 5 = 15');
+          buf.writeln();
+          buf.writeln('1. 2x = 15 - 5');
+          buf.writeln('2. 2x = 10');
+          buf.writeln('3. x = 10 / 2 = **5**');
+          break;
+        case 'physics':
+          buf.writeln('**Пример:**');
+          buf.writeln();
+          buf.writeln('Машина проехала 120 км за 2 часа. Скорость?');
+          buf.writeln();
+          buf.writeln('v = s/t = 120/2 = **60 км/ч**');
+          break;
+        default:
+          buf.writeln('Пример по вашему тексту:');
+          buf.writeln();
+          buf.writeln('> ${originalText.length > 80 ? originalText.substring(0, 80) : originalText}...');
+          buf.writeln();
+          buf.writeln('Попробуйте пересказать своими словами — это лучший способ запомнить.');
+      }
+    } else if (lowerQ.contains(RegExp(r'формула|formula'))) {
+      switch (type) {
+        case 'math':
+          buf.writeln('**Основные формулы:**');
+          buf.writeln('- `a² + b² = c²` — теорема Пифагора');
+          buf.writeln('- `D = b² - 4ac` — дискриминант');
+          buf.writeln('- `x = (-b ± √D) / 2a` — корни квадратного уравнения');
+          buf.writeln('- `S = πr²` — площадь круга');
+          break;
+        case 'physics':
+          buf.writeln('**Основные формулы:**');
+          buf.writeln('- `F = ma` — сила');
+          buf.writeln('- `v = s/t` — скорость');
+          buf.writeln('- `E = mc²` — энергия');
+          buf.writeln('- `A = Fs` — работа');
+          break;
+        default:
+          buf.writeln('В данном тексте формулы не обнаружены.');
+      }
+    } else if (lowerQ.contains(RegExp(r'почему|неге|зачем|why'))) {
+      buf.writeln('Хороший вопрос!');
+      buf.writeln();
+      buf.writeln('Исходя из текста:');
+      buf.writeln('> ${originalText.length > 100 ? originalText.substring(0, 100) : originalText}...');
+      buf.writeln();
+      buf.writeln('Чтобы глубже разобраться, обратите внимание на основные принципы и закономерности.');
+    } else if (lowerQ.contains(RegExp(r'как|қалай|how'))) {
+      buf.writeln('**Пошагово:**');
+      buf.writeln();
+      buf.writeln('1. Определяем данные');
+      buf.writeln('2. Выбираем нужную формулу/метод');
+      buf.writeln('3. Выполняем по шагам');
+      buf.writeln('4. Проверяем результат');
+    } else {
+      buf.writeln('**$question**');
+      buf.writeln();
+      switch (type) {
+        case 'math':
+          buf.writeln('По математике: запомните формулы и решайте побольше примеров — это лучший способ разобраться.');
+          break;
+        case 'physics':
+          buf.writeln('По физике: попробуйте связать формулы с реальными примерами из жизни — так легче запомнить.');
+          break;
+        case 'chemistry':
+          buf.writeln('По химии: обращайте внимание на свойства элементов. Периодическая таблица — ваш главный помощник.');
+          break;
+        default:
+          buf.writeln('Перечитайте текст, выделите ключевые моменты и попробуйте пересказать своими словами.');
+      }
     }
+
+    return buf.toString();
   }
 }

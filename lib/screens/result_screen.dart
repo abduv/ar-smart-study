@@ -203,13 +203,19 @@ class _ResultScreenState extends State<ResultScreen>
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.grey[100],
+              color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey[300]!),
+              border: Border.all(
+                color: AppTheme.primaryColor.withOpacity(0.2),
+              ),
             ),
             child: SelectableText(
               widget.result.recognizedText,
-              style: const TextStyle(fontSize: 15, height: 1.6),
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.6,
+                color: Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black87,
+              ),
             ),
           ),
         ],
